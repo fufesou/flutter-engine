@@ -36,6 +36,11 @@ namespace flutter {
 // used within this interval.
 static constexpr std::chrono::milliseconds kSkiaCleanupExpiration(15000);
 
+std::scoped_lock<std::mutex> SurfaceFrameSubmitLock() {
+  static std::mutex surface_frame_submit_mutex_;
+  return std::scoped_lock(surface_frame_submit_mutex_);
+}
+
 Rasterizer::Rasterizer(Delegate& delegate,
                        MakeGpuImageBehavior gpu_image_behavior)
     : delegate_(delegate),
@@ -630,6 +635,7 @@ RasterStatus Rasterizer::DrawToSurfaceUnsafe(
       external_view_embedder_->SubmitFrame(
           surface_->GetContext(), surface_->GetAiksContext(), std::move(frame));
     } else {
+      auto submit_lock = SurfaceFrameSubmitLock();
       frame->Submit();
     }
 

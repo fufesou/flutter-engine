@@ -4,6 +4,7 @@
 
 #include "flutter/shell/platform/windows/angle_surface_manager.h"
 
+#include <mutex>
 #include <vector>
 
 #include "flutter/fml/logging.h"
@@ -19,6 +20,8 @@ static void LogEglError(std::string message) {
 namespace flutter {
 
 int AngleSurfaceManager::instance_count_ = 0;
+
+std::scoped_lock<std::mutex> SurfaceFrameSubmitLock();
 
 std::unique_ptr<AngleSurfaceManager> AngleSurfaceManager::Create() {
   std::unique_ptr<AngleSurfaceManager> manager;
@@ -234,6 +237,7 @@ bool AngleSurfaceManager::CreateSurface(WindowsRenderTarget* render_target,
   surface_height_ = height;
   render_surface_ = surface;
 
+  auto suface_frame_submit_lock = SurfaceFrameSubmitLock();
   SetVSyncEnabled(vsync_enabled);
   return true;
 }
