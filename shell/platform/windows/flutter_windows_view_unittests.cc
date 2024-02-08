@@ -110,8 +110,9 @@ class MockFlutterWindowsEngine : public FlutterWindowsEngine {
  public:
   MockFlutterWindowsEngine() : FlutterWindowsEngine(GetTestProject()) {}
 
+  MOCK_METHOD(bool, running, (), (const));
   MOCK_METHOD(bool, Stop, (), ());
-  MOCK_METHOD(bool, PostRasterThreadTask, (fml::closure), ());
+  MOCK_METHOD(bool, PostRasterThreadTask, (fml::closure), (const));
 
  private:
   FML_DISALLOW_COPY_AND_ASSIGN(MockFlutterWindowsEngine);
@@ -123,14 +124,14 @@ class MockAngleSurfaceManager : public AngleSurfaceManager {
 
   MOCK_METHOD(bool,
               CreateSurface,
-              (WindowsRenderTarget*, EGLint, EGLint, bool),
+              (WindowsRenderTarget*, EGLint, EGLint),
               (override));
   MOCK_METHOD(void,
               ResizeSurface,
               (WindowsRenderTarget*, EGLint, EGLint, bool),
               (override));
   MOCK_METHOD(void, DestroySurface, (), (override));
-
+  MOCK_METHOD(bool, ClearCurrent, (), (override));
   MOCK_METHOD(void, SetVSyncEnabled, (bool), (override));
 
  private:
@@ -878,7 +879,6 @@ TEST(FlutterWindowsViewTest, WindowRepaintTests) {
 
   FlutterWindowsView view(std::make_unique<flutter::FlutterWindow>(100, 100));
   view.SetEngine(std::move(engine));
-  view.CreateRenderSurface();
 
   bool schedule_frame_called = false;
   modifier.embedder_api().ScheduleFrame =
@@ -1218,13 +1218,17 @@ TEST(FlutterWindowsViewTest, TooltipNodeData) {
 }
 
 // Don't block until the v-blank if it is disabled by the window.
-TEST(FlutterWindowsViewTest, DisablesVSync) {
+// The surface is updated on the platform thread at startup.
+TEST(FlutterWindowsViewTest, DisablesVSyncAtStartup) {
   std::unique_ptr<MockFlutterWindowsEngine> engine =
       std::make_unique<MockFlutterWindowsEngine>();
   auto window_binding_handler =
       std::make_unique<NiceMock<MockWindowBindingHandler>>();
   std::unique_ptr<MockAngleSurfaceManager> surface_manager =
       std::make_unique<MockAngleSurfaceManager>();
+
+  EXPECT_CALL(*engine.get(), running).WillRepeatedly(Return(false));
+  EXPECT_CALL(*engine.get(), PostRasterThreadTask).Times(0);
 
   EXPECT_CALL(*window_binding_handler.get(), NeedsVSync)
       .WillOnce(Return(false));
@@ -1233,8 +1237,7 @@ TEST(FlutterWindowsViewTest, DisablesVSync) {
   FlutterWindowsView view(std::move(window_binding_handler));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(),
-              CreateSurface(_, _, _, /*vsync_enabled=*/false))
+  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _))
       .Times(1)
       .WillOnce(Return(true));
 
@@ -1248,7 +1251,8 @@ TEST(FlutterWindowsViewTest, DisablesVSync) {
 }
 
 // Blocks until the v-blank if it is enabled by the window.
-TEST(FlutterWindowsViewTest, EnablesVSync) {
+// The surface is updated on the raster thread if the engine is running.
+TEST(FlutterWindowsViewTest, EnablesVSyncAfterStartup) {
   std::unique_ptr<MockFlutterWindowsEngine> engine =
       std::make_unique<MockFlutterWindowsEngine>();
   auto window_binding_handler =
@@ -1256,14 +1260,15 @@ TEST(FlutterWindowsViewTest, EnablesVSync) {
   std::unique_ptr<MockAngleSurfaceManager> surface_manager =
       std::make_unique<MockAngleSurfaceManager>();
 
+  EXPECT_CALL(*engine.get(), running).WillRepeatedly(Return(true));
+
   EXPECT_CALL(*window_binding_handler.get(), NeedsVSync).WillOnce(Return(true));
 
   EngineModifier modifier(engine.get());
   FlutterWindowsView view(std::move(window_binding_handler));
 
   InSequence s;
-  EXPECT_CALL(*surface_manager.get(),
-              CreateSurface(_, _, _, /*vsync_enabled=*/true))
+  EXPECT_CALL(*surface_manager.get(), CreateSurface(_, _, _))
       .Times(1)
       .WillOnce(Return(true));
 
@@ -1288,7 +1293,6 @@ TEST(FlutterWindowsViewTest, UpdatesVSyncOnDwmUpdates) {
       std::make_unique<MockAngleSurfaceManager>();
 
   EXPECT_CALL(*engine.get(), PostRasterThreadTask)
-      .Times(2)
       .WillRepeatedly([](fml::closure callback) {
         callback();
         return true;

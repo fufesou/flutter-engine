@@ -679,7 +679,7 @@ bool FlutterWindowsEngine::MarkExternalTextureFrameAvailable(
               engine_, texture_id) == kSuccess);
 }
 
-bool FlutterWindowsEngine::PostRasterThreadTask(fml::closure callback) {
+bool FlutterWindowsEngine::PostRasterThreadTask(fml::closure callback) const {
   struct Captures {
     fml::closure callback;
   };
